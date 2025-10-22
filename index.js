@@ -20,21 +20,23 @@ app.use((req, res) => {
 });
 
 async function startServer() {
+    // Iniciar servidor inmediatamente
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 API Gateway running on port ${PORT}`);
+        console.log(`Environment: ${config.NODE_ENV}`);
+        console.log(`📡 Server started successfully`);
+    });
+
+    // Intentar conectar broker en background
     try {
         console.log('🔄 Attempting to connect to broker...');
         await brokerService.connect();
         console.log('✅ Message Broker connected successfully.');
     } catch (error) {
         console.warn('⚠️  Broker connection failed:', error.message);
-        console.warn('⚠️  Server will start without broker connection.');
+        console.warn('⚠️  Server will continue without broker connection.');
         console.warn('⚠️  Excel processing will be simulated until broker is available.');
     }
-
-    app.listen(PORT, () => {
-        console.log(`🚀 API Gateway running on port ${PORT}`);
-        console.log(`Environment: ${config.NODE_ENV}`);
-        console.log(`📡 Broker Status: ${brokerService.isConnected() ? 'Connected' : 'Disconnected'}`);
-    });
 }
 
 startServer();

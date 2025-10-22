@@ -101,14 +101,8 @@ router.post('/excel/upload-and-process', upload.single('file'), async (req, res)
         console.log(`🔗 Uploading file to MinIO: ${fileName}`);
         console.log(`   Generated key: ${fileKey}`);
         
-        // Subir archivo a MinIO
-        const s3 = new AWS.S3({
-            endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
-            accessKeyId: process.env.S3_ACCESS_KEY || 'admin',
-            secretAccessKey: process.env.S3_SECRET_KEY || 'admin12345',
-            region: process.env.S3_REGION || 'us-east-1',
-            s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true'
-        });
+        // Subir archivo a MinIO usando el servicio existente
+        const s3 = minioService.s3;
         
         const bucketName = process.env.S3_BUCKET || 'my-bucket';
         
