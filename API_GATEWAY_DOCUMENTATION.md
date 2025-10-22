@@ -1,246 +1,216 @@
-# API Gateway - Excel Processing Integration
+# API Gateway Documentation
 
-## Descripción
+## Overview
+API Gateway para el procesamiento de archivos Excel con integración a MinIO y ActiveMQ.
 
-El API Gateway actúa como punto de entrada para procesar archivos Excel. Recibe archivos Excel codificados en base64 y los envía a la cola `excel-input-queue` para su procesamiento por el DocExcelParser.
+## Endpoints
 
-## Flujo de Procesamiento
-
-```
-POST /api/excel/process
-    ↓
-API Gateway (Node.js)
-    ↓
-excel-input-queue (ActiveMQ)
-    ↓
-DocExcelParser (WildFly)
-    ↓
-patient-data-queue (ActiveMQ)
-```
-
-## Endpoints Disponibles
-
-### 1. Health Check
-```http
-GET /api/health
-```
-
-**Respuesta:**
+### Health Check
+- **URL:** `GET /api/health`
+- **Description:** Verifica el estado del API Gateway
+- **Response:**
 ```json
 {
-    "status": "ok",
-    "message": "API Gateway is online!",
-    "timestamp": "2025-10-22T00:35:00.000Z"
+  "status": "ok",
+  "message": "API Gateway is online!",
+  "timestamp": "2025-10-22T12:00:00.000Z"
 }
 ```
 
-### 2. Test Broker Connection
-```http
-POST /api/test-broker-connection
-```
-
-**Respuesta:**
+### MinIO Health Check
+- **URL:** `GET /api/minio/health`
+- **Description:** Verifica la conexión con MinIO
+- **Response:**
 ```json
 {
-    "status": "accepted",
-    "message": "Test message successfully published to broker.",
-    "destination": "/queue/test.hello"
+  "status": "ok",
+  "message": "MinIO connection successful",
+  "endpoint": "http://localhost:9000",
+  "bucket": "my-bucket",
+  "timestamp": "2025-10-22T12:00:00.000Z"
 }
 ```
 
-### 3. Process Excel File ⭐ **NUEVO**
-```http
-POST /api/excel/process
-Content-Type: application/json
+### Excel Upload and Process (NUEVO - RECOMENDADO)
+- **URL:** `POST /api/excel/upload-and-process`
+- **Description:** Sube un archivo Excel y lo procesa automáticamente
+- **Content-Type:** `multipart/form-data`
+- **Body:**
+  - **Key:** `file` (tipo: File)
+  - **Value:** Archivo Excel (.xlsx o .xls)
 
-{
-    "base64Content": "UEsDBBQAAAAIAA..."
-}
+#### Ejemplo con Postman:
+1. **Method:** `POST`
+2. **URL:** `http://localhost:3001/api/excel/upload-and-process`
+3. **Body:** Seleccionar `form-data`
+4. **Key:** `file` (dropdown: **File**)
+5. **Value:** Seleccionar archivo Excel
+6. **Send**
+
+#### Ejemplo con cURL:
+```bash
+curl -X POST http://localhost:3001/api/excel/upload-and-process \
+  -F "file=@mi-archivo.xlsx"
 ```
 
-**Respuesta Exitosa (202 Accepted):**
+#### Response:
 ```json
 {
-    "status": "accepted",
-    "message": "Excel file successfully sent to processing queue",
-    "destination": "/queue/excel-input-queue",
-    "processingId": "excel-1737528900000",
-    "timestamp": "2025-10-22T00:35:00.000Z"
+  "status": "success",
+  "message": "Excel file uploaded and processing queued successfully",
+  "processingId": "excel-upload-1234567890",
+  "fileKey": "uploads/excel-1234567890-abc123.xlsx",
+  "fileName": "mi-archivo.xlsx",
+  "fileSize": 12345,
+  "minioLocation": "http://localhost:9000/my-bucket/uploads/...",
+  "timestamp": "2025-10-22T12:00:00.000Z",
+  "brokerStatus": "connected",
+  "instructions": {
+    "note": "File has been automatically uploaded to MinIO and queued for processing",
+    "nextSteps": "Check the patient-data-queue for processed results"
+  }
 }
 ```
 
-**Respuesta de Error (400 Bad Request):**
+### Excel Presigned URL (MÉTODO ALTERNATIVO)
+- **URL:** `POST /api/excel/presigned-url`
+- **Description:** Genera una URL presignada para subir archivos a MinIO
+- **Body:**
 ```json
 {
-    "status": "error",
-    "message": "Missing required field: base64Content",
-    "details": "The request body must contain a base64Content field with the Excel file encoded in base64"
+  "fileName": "mi-archivo.xlsx"
 }
 ```
 
-**Respuesta de Error (503 Service Unavailable):**
+#### Response:
 ```json
 {
-    "status": "error",
-    "message": "Failed to process Excel file. Broker service unavailable.",
-    "details": "STOMP connection failed: Connection refused"
+  "status": "success",
+  "presignedUrl": "http://localhost:9000/my-bucket/uploads/...",
+  "fileKey": "uploads/excel-1234567890-abc123.xlsx",
+  "fileName": "mi-archivo.xlsx",
+  "expiresIn": 900,
+  "instructions": {
+    "method": "PUT",
+    "headers": {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    },
+    "note": "Upload your Excel file directly to this URL within 15 minutes"
+  },
+  "automaticProcessing": {
+    "enabled": true,
+    "delaySeconds": 30,
+    "message": "File will be automatically processed 30 seconds after presigned URL generation",
+    "note": "No need to call /api/excel/process manually - it will happen automatically!"
+  }
 }
 ```
 
-### 4. Add Therapist Profile
-```http
-POST /api/profiles-therapist/add-therapist
-Content-Type: application/json
-
+### Excel Process (MÉTODO ALTERNATIVO)
+- **URL:** `POST /api/excel/process`
+- **Description:** Procesa un archivo Excel usando su fileKey de MinIO
+- **Body:**
+```json
 {
-    "firstNames": "Juan",
-    "paternalSurname": "Pérez",
-    "maternalSurname": "García",
-    "identityDocumentNumber": "12345678",
-    "documentType": "DNI",
-    "phone": "987654321",
-    "email": "juan.perez@email.com",
-    "specialtyName": "Cardiología",
-    "attentionPlaceAddress": "Av. Principal 123"
+  "fileKey": "uploads/excel-1234567890-abc123.xlsx",
+  "fileName": "mi-archivo.xlsx"
+}
+```
+
+### Test Broker Connection
+- **URL:** `POST /api/test-broker-connection`
+- **Description:** Prueba la conexión con ActiveMQ
+- **Response:**
+```json
+{
+  "status": "accepted",
+  "message": "Test message successfully published to broker.",
+  "destination": "/queue/test.hello"
+}
+```
+
+### Add Therapist Profile
+- **URL:** `POST /api/profiles-therapist/add-therapist`
+- **Description:** Agrega un perfil de terapeuta
+- **Body:**
+```json
+{
+  "firstNames": "Juan",
+  "paternalSurname": "Pérez",
+  "maternalSurname": "García",
+  "identityDocumentNumber": "12345678",
+  "documentType": "DNI",
+  "phone": "987654321",
+  "email": "juan.perez@example.com",
+  "specialtyName": "Psicología",
+  "attentionPlaceAddress": "Av. Principal 123"
 }
 ```
 
 ## Configuración
 
 ### Variables de Entorno
-```bash
-# Puerto del servidor
-SERVER_PORT=3000
+Crear archivo `.env` en la raíz del proyecto:
 
-# Configuración del broker (ActiveMQ)
-BROKER_TYPE=STOMP
-BROKER_URL=ws://localhost:61614/stomp
-BROKER_USER=guest
-BROKER_PASS=guest
+```env
+# MinIO Configuration
+S3_ENDPOINT=http://localhost:9000
+S3_REGION=us-east-1
+S3_ACCESS_KEY=admin
+S3_SECRET_KEY=admin12345
+S3_BUCKET=my-bucket
+S3_FORCE_PATH_STYLE=true
 
-# URLs de servicios (opcional)
-USER_SERVICE_URL=http://localhost:4001
-ORDER_SERVICE_URL=http://localhost:4002
+# Broker Configuration
+BROKER_URL=ws://localhost:61614
+BROKER_USER=admin
+BROKER_PASS=admin
+
+# Server Configuration
+NODE_ENV=development
+PORT=3001
 ```
 
-### Dependencias
-```json
-{
-    "@stomp/stompjs": "^7.2.1",
-    "axios": "^1.12.2",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "ws": "^8.18.3"
-}
-```
-
-## Instalación y Ejecución
-
-### 1. Instalar Dependencias
+### Instalación
 ```bash
-cd api-gateway
 npm install
 ```
 
-### 2. Configurar Variables de Entorno
+### Ejecución
 ```bash
-# Crear archivo .env
-echo "SERVER_PORT=3000" > .env
-echo "BROKER_URL=ws://localhost:61614/stomp" >> .env
-echo "BROKER_USER=guest" >> .env
-echo "BROKER_PASS=guest" >> .env
-```
-
-### 3. Ejecutar API Gateway
-```bash
-npm start
-# o
 node index.js
 ```
 
-### 4. Verificar Funcionamiento
-```bash
-# Health check
-curl http://localhost:3000/api/health
+## Flujo Recomendado
 
-# Test broker connection
-curl -X POST http://localhost:3000/api/test-broker-connection
-```
+### Opción 1: Endpoint Único (RECOMENDADO)
+1. **POST** `/api/excel/upload-and-process` con archivo Excel
+2. **Automático:** Subida a MinIO + Procesamiento
 
-## Ejemplo de Uso con cURL
-
-### Procesar Archivo Excel
-```bash
-curl -X POST http://localhost:3000/api/excel/process \
-  -H "Content-Type: application/json" \
-  -d '{
-    "base64Content": "UEsDBBQAAAAIAA..."
-  }'
-```
-
-### Respuesta Esperada
-```json
-{
-    "status": "accepted",
-    "message": "Excel file successfully sent to processing queue",
-    "destination": "/queue/excel-input-queue",
-    "processingId": "excel-1737528900000",
-    "timestamp": "2025-10-22T00:35:00.000Z"
-}
-```
+### Opción 2: Flujo con Presigned URL
+1. **POST** `/api/excel/presigned-url` → Obtener URL
+2. **PUT** presigned URL → Subir archivo
+3. **Automático:** Procesamiento después de 30 segundos
 
 ## Validaciones
 
-### Campo base64Content
-- ✅ **Requerido**: El campo `base64Content` es obligatorio
-- ✅ **Tipo**: Debe ser un string
-- ✅ **Contenido**: No puede estar vacío
-- ✅ **Formato**: Debe ser base64 válido
+### Archivos Excel
+- **Tipos permitidos:** `.xlsx`, `.xls`
+- **Tamaño máximo:** 50MB
+- **Campo requerido:** `file` (multipart/form-data)
 
-### Estructura del Mensaje Enviado
+### Respuestas de Error
 ```json
 {
-    "base64Content": "string",
-    "timestamp": "ISO 8601",
-    "source": "api-gateway",
-    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  "status": "error",
+  "message": "Error description",
+  "details": "Detailed error information"
 }
 ```
 
-## Troubleshooting
-
-### Error de Conexión al Broker
-```
-STOMP: Broker error: Connection refused
-```
-**Solución**: Verificar que ActiveMQ esté ejecutándose en puerto 61614
-
-### Error de Validación
-```
-Missing required field: base64Content
-```
-**Solución**: Incluir el campo `base64Content` en el body del POST
-
-### Error de Procesamiento
-```
-Failed to process Excel file. Broker service unavailable.
-```
-**Solución**: Verificar conexión STOMP y que la cola `excel-input-queue` exista
-
-## Logs del Sistema
-
-El API Gateway registra todas las operaciones:
-```
-[2025-10-22T00:35:00.000Z] POST /api/excel/process
-STOMP: Published message to /queue/excel-input-queue
-```
-
-## Estado del Proyecto
-
-✅ **Health Check**: Implementado  
-✅ **Test Broker**: Implementado  
-✅ **Excel Processing**: Implementado  
-✅ **Therapist Profile**: Implementado  
-✅ **Validaciones**: Implementadas  
-✅ **Manejo de Errores**: Implementado  
-✅ **Documentación**: Completa
+## Logs
+El API Gateway genera logs detallados para debugging:
+- Conexiones de broker
+- Subidas a MinIO
+- Procesamiento de archivos
+- Errores y excepciones
