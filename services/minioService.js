@@ -37,11 +37,6 @@ class MinioService {
                 ACL: 'private'
             };
 
-            // Agregar validaciones de tamaño si se especifican
-            if (options.contentLengthRange) {
-                params.ContentLengthRange = options.contentLengthRange;
-            }
-
             console.log(`🔗 Generating presigned PUT URL for key: ${key}`);
             console.log(`   Expires in: ${params.Expires} seconds`);
             console.log(`   Content-Type: ${params.ContentType}`);

@@ -137,8 +137,7 @@ router.post('/excel/presigned-url', async (req, res) => {
         // Generar presigned URL para subida
         const presignedUrl = await minioService.generatePresignedPutUrl(fileKey, {
             expiresIn: 900, // 15 minutos
-            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            contentLengthRange: { min: 1024, max: 50 * 1024 * 1024 } // 1KB - 50MB
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         });
         
         console.log('✅ Presigned URL generated successfully');
