@@ -87,10 +87,19 @@ router.post('/profiles-therapist/add-therapist', async (req, res) => {
 });
 
 router.post('/excel/process', async (req, res) => {
+    console.log('=== EXCEL PROCESS ENDPOINT CALLED ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Request Method:', req.method);
+    console.log('Request URL:', req.url);
+    console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Request Body Keys:', Object.keys(req.body || {}));
+    console.log('Request Body Length:', JSON.stringify(req.body || {}).length);
+    
     const destination = '/queue/excel-input-queue';
     
     // Validar que se reciba el base64 del Excel
     if (!req.body.base64Content) {
+        console.log('❌ VALIDATION ERROR: Missing base64Content field');
         return res.status(400).send({
             status: 'error',
             message: 'Missing required field: base64Content',
@@ -100,12 +109,17 @@ router.post('/excel/process', async (req, res) => {
 
     // Validar que el base64Content no esté vacío
     if (typeof req.body.base64Content !== 'string' || req.body.base64Content.trim() === '') {
+        console.log('❌ VALIDATION ERROR: Empty or invalid base64Content');
         return res.status(400).send({
             status: 'error',
             message: 'Invalid base64Content',
             details: 'The base64Content field must be a non-empty string'
         });
     }
+
+    console.log('✅ VALIDATION PASSED: base64Content received');
+    console.log('Base64 Content Length:', req.body.base64Content.length);
+    console.log('Base64 Content Preview:', req.body.base64Content.substring(0, 50) + '...');
 
     try {
         const excelData = {
@@ -115,7 +129,14 @@ router.post('/excel/process', async (req, res) => {
             contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         };
 
+        console.log('📤 ATTEMPTING TO PUBLISH TO BROKER...');
+        console.log('Destination:', destination);
+        console.log('Message Size:', JSON.stringify(excelData).length);
+
         await brokerService.publish(destination, excelData);
+
+        console.log('✅ MESSAGE PUBLISHED SUCCESSFULLY');
+        console.log('Processing ID:', `excel-${Date.now()}`);
 
         res.status(202).send({
             status: 'accepted',
@@ -125,13 +146,16 @@ router.post('/excel/process', async (req, res) => {
             timestamp: excelData.timestamp
         });
     } catch (error) {
-        console.error('❌ Failed to process Excel file:', error.message);
+        console.error('❌ FAILED TO PROCESS EXCEL FILE:', error.message);
+        console.error('Error Stack:', error.stack);
         res.status(503).send({
             status: 'error',
             message: 'Failed to process Excel file. Broker service unavailable.',
             details: error.message
         });
     }
+    
+    console.log('=== EXCEL PROCESS ENDPOINT COMPLETED ===');
 });
 
 module.exports = router;
