@@ -70,7 +70,16 @@ function publish(destination, payload) {
     }
 }
 
+/**
+ * Checks if the STOMP client is connected to the broker.
+ * @returns {boolean} True if connected, false otherwise.
+ */
+function isConnected() {
+    return stompClient && stompClient.connected;
+}
+
 module.exports = {
     connect,
     publish,
+    isConnected,
 };
