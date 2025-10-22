@@ -23,6 +23,12 @@ async function connect() {
         reconnectDelay: 5000,
         heartbeatIncoming: 4000,
         heartbeatOutgoing: 4000,
+        // Configuración para mensajes grandes
+        maxWebSocketFrameSize: 1024 * 1024 * 50, // 50MB
+        maxWebSocketMessageSize: 1024 * 1024 * 50, // 50MB
+        // Configuración para dividir frames grandes
+        splitLargeFrames: true,
+        maxWebSocketChunkSize: 64 * 1024, // 64KB chunks
     });
 
     return new Promise((resolve, reject) => {

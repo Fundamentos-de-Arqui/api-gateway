@@ -98,32 +98,32 @@ router.post('/excel/process', async (req, res) => {
     const destination = '/queue/excel-input-queue';
     
     // Validar que se reciba el base64 del Excel
-    if (!req.body.base64Content) {
-        console.log('❌ VALIDATION ERROR: Missing base64Content field');
+    if (!req.body.excelBase64) {
+        console.log('❌ VALIDATION ERROR: Missing excelBase64 field');
         return res.status(400).send({
             status: 'error',
-            message: 'Missing required field: base64Content',
-            details: 'The request body must contain a base64Content field with the Excel file encoded in base64'
+            message: 'Missing required field: excelBase64',
+            details: 'The request body must contain an excelBase64 field with the Excel file encoded in base64'
         });
     }
 
-    // Validar que el base64Content no esté vacío
-    if (typeof req.body.base64Content !== 'string' || req.body.base64Content.trim() === '') {
-        console.log('❌ VALIDATION ERROR: Empty or invalid base64Content');
+    // Validar que el excelBase64 no esté vacío
+    if (typeof req.body.excelBase64 !== 'string' || req.body.excelBase64.trim() === '') {
+        console.log('❌ VALIDATION ERROR: Empty or invalid excelBase64');
         return res.status(400).send({
             status: 'error',
-            message: 'Invalid base64Content',
-            details: 'The base64Content field must be a non-empty string'
+            message: 'Invalid excelBase64',
+            details: 'The excelBase64 field must be a non-empty string'
         });
     }
 
-    console.log('✅ VALIDATION PASSED: base64Content received');
-    console.log('Base64 Content Length:', req.body.base64Content.length);
-    console.log('Base64 Content Preview:', req.body.base64Content.substring(0, 50) + '...');
+    console.log('✅ VALIDATION PASSED: excelBase64 received');
+    console.log('Excel Base64 Content Length:', req.body.excelBase64.length);
+    console.log('Excel Base64 Content Preview:', req.body.excelBase64.substring(0, 50) + '...');
 
     try {
         const excelData = {
-            base64Content: req.body.base64Content,
+            excelBase64: req.body.excelBase64,
             timestamp: new Date().toISOString(),
             source: 'api-gateway',
             contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
