@@ -2,6 +2,27 @@ const express = require('express');
 const router = express.Router();
 const brokerService = require('../services/broker');
 const minioService = require('../services/minioService');
+const multer = require('multer');
+const AWS = require('aws-sdk');
+
+// Configurar multer para manejar archivos en memoria
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB límite
+    },
+    fileFilter: (req, file, cb) => {
+        // Solo permitir archivos Excel
+        if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+            file.mimetype === 'application/vnd.ms-excel' ||
+            file.originalname.endsWith('.xlsx') ||
+            file.originalname.endsWith('.xls')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Solo se permiten archivos Excel (.xlsx, .xls)'), false);
+        }
+    }
+});
 
 router.get('/health', (req, res) => {
     res.status(200).send({
@@ -43,6 +64,131 @@ router.get('/minio/health', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     }
+});
+
+// Endpoint único para subir y procesar Excel automáticamente
+router.post('/excel/upload-and-process', upload.single('file'), async (req, res) => {
+    console.log('=== EXCEL UPLOAD AND PROCESS ENDPOINT CALLED ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Request Method:', req.method);
+    console.log('Request URL:', req.url);
+    console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+    
+    try {
+        // Validar que se recibió un archivo
+        if (!req.file) {
+            console.log('❌ VALIDATION ERROR: No file received');
+            return res.status(400).send({
+                status: 'error',
+                message: 'No file received',
+                details: 'Please upload an Excel file using the "file" field'
+            });
+        }
+        
+        const file = req.file;
+        console.log('✅ File received successfully');
+        console.log('File Info:', {
+            originalName: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+            bufferLength: file.buffer.length
+        });
+        
+        // Generar clave única para MinIO
+        const fileName = file.originalname || `excel-${Date.now()}.xlsx`;
+        const fileKey = minioService.generateUniqueKey(fileName, 'uploads');
+        
+        console.log(`🔗 Uploading file to MinIO: ${fileName}`);
+        console.log(`   Generated key: ${fileKey}`);
+        
+        // Subir archivo a MinIO
+        const s3 = new AWS.S3({
+            endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
+            accessKeyId: process.env.S3_ACCESS_KEY || 'admin',
+            secretAccessKey: process.env.S3_SECRET_KEY || 'admin12345',
+            region: process.env.S3_REGION || 'us-east-1',
+            s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true'
+        });
+        
+        const bucketName = process.env.S3_BUCKET || 'my-bucket';
+        
+        const uploadParams = {
+            Bucket: bucketName,
+            Key: fileKey,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+            ACL: 'private'
+        };
+        
+        console.log('📤 Uploading to MinIO...');
+        const uploadResult = await s3.upload(uploadParams).promise();
+        console.log('✅ File uploaded to MinIO successfully');
+        console.log('Upload Result:', uploadResult.Location);
+        
+        // Obtener información del archivo subido
+        const fileInfo = await minioService.getFileInfo(fileKey);
+        console.log('📄 File Info from MinIO:', JSON.stringify(fileInfo, null, 2));
+        
+        // Crear mensaje para la cola
+        const processingMessage = {
+            fileKey: fileKey,
+            fileName: fileName,
+            bucket: bucketName,
+            fileSize: fileInfo.size,
+            contentType: fileInfo.contentType,
+            timestamp: new Date().toISOString(),
+            source: 'api-gateway-upload',
+            metadata: { 
+                autoProcessed: true,
+                originalName: file.originalname,
+                uploadMethod: 'multipart'
+            }
+        };
+        
+        console.log('📤 Publishing processing message to broker...');
+        console.log('Destination: /queue/excel-input-queue');
+        console.log('Message Size:', JSON.stringify(processingMessage).length);
+        
+        if (brokerService.isConnected()) {
+            await brokerService.publish('/queue/excel-input-queue', processingMessage);
+            console.log('✅ Processing message published successfully');
+        } else {
+            console.log('⚠️  Broker not connected - processing message not sent');
+        }
+        
+        const processingId = `excel-upload-${Date.now()}`;
+        console.log('Processing ID:', processingId);
+        
+        res.status(202).send({
+            status: 'success',
+            message: brokerService.isConnected() 
+                ? 'Excel file uploaded and processing queued successfully'
+                : 'Excel file uploaded successfully (broker disconnected)',
+            processingId: processingId,
+            fileKey: fileKey,
+            fileName: fileName,
+            fileSize: fileInfo.size,
+            minioLocation: uploadResult.Location,
+            timestamp: processingMessage.timestamp,
+            brokerStatus: brokerService.isConnected() ? 'connected' : 'disconnected',
+            instructions: {
+                note: 'File has been automatically uploaded to MinIO and queued for processing',
+                nextSteps: 'Check the patient-data-queue for processed results'
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ FAILED TO UPLOAD AND PROCESS EXCEL:', error.message);
+        console.error('Error Stack:', error.stack);
+        
+        res.status(500).send({
+            status: 'error',
+            message: 'Failed to upload and process Excel file',
+            details: error.message
+        });
+    }
+    
+    console.log('=== EXCEL UPLOAD AND PROCESS ENDPOINT COMPLETED ===');
 });
 
 router.post('/test-broker-connection', async (req, res) => {
