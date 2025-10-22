@@ -142,6 +142,52 @@ router.post('/excel/presigned-url', async (req, res) => {
         
         console.log('✅ Presigned URL generated successfully');
         
+        // Programar procesamiento automático después de 30 segundos
+        console.log('⏰ Scheduling automatic processing in 30 seconds...');
+        setTimeout(async () => {
+            try {
+                console.log('🔄 Starting automatic processing for file:', fileKey);
+                
+                // Verificar que el archivo existe en MinIO
+                const fileExists = await minioService.fileExists(fileKey);
+                
+                if (fileExists) {
+                    console.log('✅ File found in MinIO, proceeding with automatic processing');
+                    
+                    // Obtener información del archivo
+                    const fileInfo = await minioService.getFileInfo(fileKey);
+                    console.log('📄 File Info:', JSON.stringify(fileInfo, null, 2));
+                    
+                    // Crear mensaje para la cola
+                    const processingMessage = {
+                        fileKey: fileKey,
+                        fileName: fileName,
+                        bucket: process.env.S3_BUCKET || 'my-bucket',
+                        fileSize: fileInfo.size,
+                        contentType: fileInfo.contentType,
+                        timestamp: new Date().toISOString(),
+                        source: 'api-gateway-auto',
+                        metadata: { autoProcessed: true }
+                    };
+                    
+                    console.log('📤 Publishing automatic processing message to broker...');
+                    console.log('Destination: /queue/excel-input-queue');
+                    console.log('Message Size:', JSON.stringify(processingMessage).length);
+                    
+                    if (brokerService.isConnected()) {
+                        await brokerService.publish('/queue/excel-input-queue', processingMessage);
+                        console.log('✅ Automatic processing message published successfully');
+                    } else {
+                        console.log('⚠️  Broker not connected - automatic processing skipped');
+                    }
+                } else {
+                    console.log('❌ File not found in MinIO after 30 seconds - automatic processing cancelled');
+                }
+            } catch (error) {
+                console.error('❌ Error in automatic processing:', error.message);
+            }
+        }, 30000); // 30 segundos
+        
         res.status(200).send({
             status: 'success',
             presignedUrl: presignedUrl,
@@ -155,13 +201,11 @@ router.post('/excel/presigned-url', async (req, res) => {
                 },
                 note: 'Upload your Excel file directly to this URL within 15 minutes'
             },
-            nextStep: {
-                endpoint: '/api/excel/process',
-                method: 'POST',
-                body: {
-                    fileKey: fileKey,
-                    fileName: fileName
-                }
+            automaticProcessing: {
+                enabled: true,
+                delaySeconds: 30,
+                message: 'File will be automatically processed 30 seconds after presigned URL generation',
+                note: 'No need to call /api/excel/process manually - it will happen automatically!'
             }
         });
         
