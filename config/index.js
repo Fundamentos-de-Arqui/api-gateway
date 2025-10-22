@@ -7,7 +7,7 @@ const environment = process.env.NODE_ENV || 'development';
 const config = {
     NODE_ENV: environment,
 
-    SERVER_PORT: process.env.SERVER_PORT || 3000,
+    SERVER_PORT: process.env.SERVER_PORT || 3001,
 
     USER_SERVICE_URL: process.env.USER_SERVICE_URL || 'http://localhost:4001',
     ORDER_SERVICE_URL: process.env.ORDER_SERVICE_URL || 'http://localhost:4002',
