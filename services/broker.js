@@ -32,12 +32,20 @@ async function connect() {
     });
 
     return new Promise((resolve, reject) => {
+        // Timeout de 10 segundos para la conexión
+        const timeout = setTimeout(() => {
+            console.warn('STOMP: Connection timeout after 10 seconds');
+            reject(new Error('Broker connection timeout'));
+        }, 10000);
+
         stompClient.onConnect = (frame) => {
+            clearTimeout(timeout);
             console.log('STOMP: Connected to broker.');
             resolve(stompClient);
         };
 
         stompClient.onStompError = (frame) => {
+            clearTimeout(timeout);
             console.error('STOMP: Broker error:', frame);
             reject(new Error(`STOMP connection failed: ${frame.headers.message}`));
         };

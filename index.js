@@ -5,7 +5,7 @@ const config = require('./config');
 const brokerService = require('./services/broker');
 const apiRouter = require('./routes/api');
 
-const PORT = config.SERVER_PORT || 3001;
+const PORT = config.SERVER_PORT || 4000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -20,14 +20,7 @@ app.use((req, res) => {
 });
 
 async function startServer() {
-    // Iniciar servidor inmediatamente
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 API Gateway running on port ${PORT}`);
-        console.log(`Environment: ${config.NODE_ENV}`);
-        console.log(`📡 Server started successfully`);
-    });
-
-    // Intentar conectar broker en background
+    // Intentar conectar broker primero
     try {
         console.log('🔄 Attempting to connect to broker...');
         await brokerService.connect();
@@ -37,6 +30,13 @@ async function startServer() {
         console.warn('⚠️  Server will continue without broker connection.');
         console.warn('⚠️  Excel processing will be simulated until broker is available.');
     }
+
+    // Iniciar servidor después de intentar conectar el broker
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 API Gateway running on port ${PORT}`);
+        console.log(`Environment: ${config.NODE_ENV}`);
+        console.log(`📡 Server started successfully`);
+    });
 }
 
 startServer();
