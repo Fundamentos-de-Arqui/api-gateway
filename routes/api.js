@@ -464,4 +464,63 @@ router.post('/excel/process', async (req, res) => {
     console.log('=== EXCEL PROCESS ENDPOINT COMPLETED ===');
 });
 
+// GET /profiles/getExcelData?type=DNI&documentNumber=12345678
+router.get('/profiles/getExcelData', async (req, res) => {
+    const { type, documentNumber } = req.query;
+    if (!type || !documentNumber) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Faltan parámetros: type y documentNumber son requeridos.'
+        });
+    }
+
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        // Publica en la cola ActiveMQ
+        brokerService.publish('/queue/profiles_getExcelData', {
+            type,
+            documentNumber,
+            timestamp: new Date().toISOString()
+        });
+
+        // Espera respuesta en la cola excel-generated-links
+        let responded = false;
+        const timeoutMs = 10000; // 10 segundos
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta en excel-generated-links.'
+                });
+            }
+        }, timeoutMs);
+
+        brokerService.subscribe('/queue/excel-generated-links', (msg) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            // Devuelve solo el downloadUrl
+            res.status(200).json({
+                downloadUrl: msg.downloadUrl,
+                fileName: msg.fileName,
+                messageId: msg.messageId,
+                timestamp: msg.timestamp,
+                source: msg.source,
+                status: msg.status
+            });
+        });
+    } catch (error) {
+        console.error('Error enviando a la cola:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo enviar a la cola',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
