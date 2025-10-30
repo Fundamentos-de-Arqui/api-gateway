@@ -523,4 +523,54 @@ router.get('/profiles/getExcelData', async (req, res) => {
     }
 });
 
+// GET /profiles/getPatientProfiles - Obtiene perfiles de pacientes
+router.get('/profiles/getPatientProfiles', async (req, res) => {
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        
+        // Publica solicitud en la cola
+        brokerService.publish('/queue/patientRecord_getProfiles', {
+            timestamp: new Date().toISOString(),
+            requestId: `req-${Date.now()}`
+        });
+
+        // Espera respuesta en la cola apigateway_patientData
+        let responded = false;
+        const timeoutMs = 15000; // 15 segundos
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta de perfiles de pacientes.'
+                });
+            }
+        }, timeoutMs);
+
+        brokerService.subscribe('/queue/apigateway_patientData', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Devuelve los datos recibidos
+            res.status(200).json({
+                status: 'success',
+                data: data,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo perfiles de pacientes:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo obtener los perfiles de pacientes',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
