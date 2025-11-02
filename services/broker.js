@@ -100,18 +100,24 @@ module.exports = {
      * Suscribe a una cola y ejecuta un callback al recibir mensajes
      * @param {string} destination - Cola o tópico (ej: '/queue/excel-generated-links')
      * @param {function} onMessage - Callback que recibe el mensaje
+     * @returns {object} subscription - Objeto de suscripción para poder desuscribirse
      */
     subscribe(destination, onMessage) {
         if (!stompClient || !stompClient.connected) {
             throw new Error('Broker connection is not active.');
         }
-        stompClient.subscribe(destination, (message) => {
+        
+        const subscription = stompClient.subscribe(destination, (message) => {
             try {
                 const body = JSON.parse(message.body);
+                console.log(`STOMP: Received message from ${destination}:`, body);
                 onMessage(body);
             } catch (err) {
                 console.error('Error parsing message:', err);
             }
         });
+        
+        console.log(`STOMP: Subscribed to ${destination}`);
+        return subscription;
     },
 };

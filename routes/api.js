@@ -488,10 +488,16 @@ router.get('/profiles/getExcelData', async (req, res) => {
 
         // Espera respuesta en la cola excel-generated-links
         let responded = false;
+        let subscription = null;
         const timeoutMs = 10000; // 10 segundos
+        
         const timeout = setTimeout(() => {
             if (!responded) {
                 responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from excel-generated-links due to timeout');
+                }
                 return res.status(504).json({
                     status: 'error',
                     message: 'Timeout esperando respuesta en excel-generated-links.'
@@ -499,10 +505,19 @@ router.get('/profiles/getExcelData', async (req, res) => {
             }
         }, timeoutMs);
 
-        brokerService.subscribe('/queue/excel-generated-links', (msg) => {
+        subscription = brokerService.subscribe('/queue/excel-generated-links', (msg) => {
             if (responded) return;
             responded = true;
             clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from excel-generated-links after receiving response');
+            }
+            
+            console.log('Received excel link:', JSON.stringify(msg, null, 2));
+            
             // Devuelve solo el downloadUrl
             res.status(200).json({
                 downloadUrl: msg.downloadUrl,
@@ -549,10 +564,16 @@ router.get('/profiles/getPatientProfiles', async (req, res) => {
 
         // Espera respuesta en la cola apigateway_patientData
         let responded = false;
+        let subscription = null;
         const timeoutMs = 15000; // 15 segundos
+        
         const timeout = setTimeout(() => {
             if (!responded) {
                 responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_patientData due to timeout');
+                }
                 return res.status(504).json({
                     status: 'error',
                     message: 'Timeout esperando respuesta de perfiles de pacientes.'
@@ -560,10 +581,18 @@ router.get('/profiles/getPatientProfiles', async (req, res) => {
             }
         }, timeoutMs);
 
-        brokerService.subscribe('/queue/apigateway_patientData', (data) => {
+        subscription = brokerService.subscribe('/queue/apigateway_patientData', (data) => {
             if (responded) return;
             responded = true;
             clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_patientData after receiving response');
+            }
+            
+            console.log('Received patient data:', JSON.stringify(data, null, 2));
             
             // Devuelve los datos recibidos con el formato PatientsSummaryWrapperDto
             res.status(200).json({
@@ -620,10 +649,16 @@ router.get('/profiles/getFiliationFiles', async (req, res) => {
 
         // Espera respuesta en la cola apigateway_filiationFiles
         let responded = false;
+        let subscription = null;
         const timeoutMs = 15000; // 15 segundos
+        
         const timeout = setTimeout(() => {
             if (!responded) {
                 responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_filiationFiles due to timeout');
+                }
                 return res.status(504).json({
                     status: 'error',
                     message: 'Timeout esperando respuesta de archivos de filiación.'
@@ -631,10 +666,18 @@ router.get('/profiles/getFiliationFiles', async (req, res) => {
             }
         }, timeoutMs);
 
-        brokerService.subscribe('/queue/apigateway_filiationFiles', (data) => {
+        subscription = brokerService.subscribe('/queue/apigateway_filiationFiles', (data) => {
             if (responded) return;
             responded = true;
             clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_filiationFiles after receiving response');
+            }
+            
+            console.log('Received filiation data:', JSON.stringify(data, null, 2));
             
             // Devuelve los datos recibidos del archivo de filiación
             res.status(200).json({
