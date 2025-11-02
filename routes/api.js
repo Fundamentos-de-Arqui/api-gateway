@@ -523,19 +523,29 @@ router.get('/profiles/getExcelData', async (req, res) => {
     }
 });
 
-// GET /profiles/getPatientProfiles - Obtiene perfiles de pacientes
+// GET /profiles/getPatientProfiles?status=ACTIVE&page_size=10&page=1 - Obtiene perfiles de pacientes
 router.get('/profiles/getPatientProfiles', async (req, res) => {
+    const { status, page_size, page } = req.query;
+    
     try {
         // Asegura conexión al broker
         if (!brokerService.isConnected()) {
             await brokerService.connect();
         }
         
-        // Publica solicitud en la cola
-        brokerService.publish('/queue/patientRecord_getProfiles', {
+        // Prepara el mensaje con los query params
+        const requestData = {
             timestamp: new Date().toISOString(),
             requestId: `req-${Date.now()}`
-        });
+        };
+        
+        // Agrega los query params si están presentes
+        if (status) requestData.status = status;
+        if (page_size) requestData.page_size = parseInt(page_size);
+        if (page) requestData.page = parseInt(page);
+        
+        // Publica solicitud en la cola
+        brokerService.publish('/queue/patientRecord_getProfiles', requestData);
 
         // Espera respuesta en la cola apigateway_patientData
         let responded = false;
@@ -555,10 +565,13 @@ router.get('/profiles/getPatientProfiles', async (req, res) => {
             responded = true;
             clearTimeout(timeout);
             
-            // Devuelve los datos recibidos
+            // Devuelve los datos recibidos con el formato PatientsSummaryWrapperDto
             res.status(200).json({
                 status: 'success',
-                data: data,
+                totalResults: data.totalResults,
+                currentPage: data.currentPage,
+                maxPage: data.maxPage,
+                patients: data.patients,
                 timestamp: new Date().toISOString()
             });
         });
