@@ -586,4 +586,72 @@ router.get('/profiles/getPatientProfiles', async (req, res) => {
     }
 });
 
+// GET /profiles/getFiliationFiles?patientId=1&versionNumber=1&orderBy=DESC
+router.get('/profiles/getFiliationFiles', async (req, res) => {
+    const { patientId, versionNumber, orderBy } = req.query;
+    
+    // Validar parámetros requeridos
+    if (!patientId) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'El parámetro patientId es requerido.'
+        });
+    }
+    
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        
+        // Prepara el mensaje con los parámetros
+        const requestData = {
+            patientId: parseInt(patientId),
+            timestamp: new Date().toISOString(),
+            requestId: `req-filiation-${Date.now()}`
+        };
+        
+        // Agrega parámetros opcionales
+        if (versionNumber) requestData.versionNumber = parseInt(versionNumber);
+        if (orderBy) requestData.orderBy = orderBy;
+        
+        // Publica solicitud en la cola
+        brokerService.publish('/queue/patientRecord_getFilliationFiles', requestData);
+
+        // Espera respuesta en la cola apigateway_filiationFiles
+        let responded = false;
+        const timeoutMs = 15000; // 15 segundos
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta de archivos de filiación.'
+                });
+            }
+        }, timeoutMs);
+
+        brokerService.subscribe('/queue/apigateway_filiationFiles', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Devuelve los datos recibidos del archivo de filiación
+            res.status(200).json({
+                status: 'success',
+                data: data,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo archivos de filiación:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo obtener los archivos de filiación',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
