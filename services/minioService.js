@@ -3,22 +3,24 @@ const { v4: uuidv4 } = require('uuid');
 
 class MinioService {
     constructor() {
+        const config = require('../config');
+        
         // Configurar AWS SDK para MinIO
         this.s3 = new AWS.S3({
-            endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
-            accessKeyId: process.env.S3_ACCESS_KEY || 'admin',
-            secretAccessKey: process.env.S3_SECRET_KEY || 'admin12345',
-            region: process.env.S3_REGION || 'us-east-1',
-            s3ForcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true' || true,
+            endpoint: config.S3_ENDPOINT,
+            accessKeyId: config.S3_ACCESS_KEY,
+            secretAccessKey: config.S3_SECRET_KEY,
+            region: config.S3_REGION,
+            s3ForcePathStyle: config.S3_FORCE_PATH_STYLE,
             signatureVersion: 'v4'
         });
         
-        this.bucketName = process.env.S3_BUCKET || 'my-bucket';
+        this.bucketName = config.S3_BUCKET;
         
         console.log('🗂️  MinIO Service initialized:');
-        console.log(`   Endpoint: ${process.env.S3_ENDPOINT || 'http://localhost:9000'}`);
+        console.log(`   Endpoint: ${config.S3_ENDPOINT}`);
         console.log(`   Bucket: ${this.bucketName}`);
-        console.log(`   Region: ${process.env.S3_REGION || 'us-east-1'}`);
+        console.log(`   Region: ${config.S3_REGION}`);
     }
 
     /**

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const brokerService = require('../services/broker');
 const minioService = require('../services/minioService');
+const ExcelGeneratedLinksConsumer = require('../services/excelGeneratedLinksConsumer');
+const config = require('../config');
 const multer = require('multer');
 const AWS = require('aws-sdk');
 
@@ -32,6 +34,48 @@ router.get('/health', (req, res) => {
     });
 });
 
+// Endpoint para verificar el estado del consumidor de Excel generated links
+router.get('/excel/consumer-status', (req, res) => {
+    try {
+        console.log('=== EXCEL CONSUMER STATUS CHECK ===');
+        console.log('Timestamp:', new Date().toISOString());
+        
+        // Verificar si el consumidor está disponible (se pasa desde index.js)
+            const consumerStatus = {
+            brokerConnected: brokerService.isConnected(),
+            consumerAvailable: global.excelGeneratedLinksConsumer ? true : false,
+            consumerConnected: global.excelGeneratedLinksConsumer ? global.excelGeneratedLinksConsumer.isConnectedToBroker() : false,
+            queueName: config.JMS_QUEUE_EXCEL_GENERATED_LINKS || 'excel-generated-links',
+            timestamp: new Date().toISOString()
+        };
+        
+        console.log('Consumer Status:', JSON.stringify(consumerStatus, null, 2));
+        
+        if (consumerStatus.brokerConnected && consumerStatus.consumerConnected) {
+            res.status(200).send({
+                status: 'ok',
+                message: 'Excel Generated Links Consumer is active and connected',
+                details: consumerStatus
+            });
+        } else {
+            res.status(503).send({
+                status: 'warning',
+                message: 'Excel Generated Links Consumer is not fully operational',
+                details: consumerStatus
+            });
+        }
+        
+    } catch (error) {
+        console.error('❌ Error checking Excel consumer status:', error.message);
+        res.status(500).send({
+            status: 'error',
+            message: 'Failed to check Excel consumer status',
+            details: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
 // Endpoint para probar conexión con MinIO
 router.get('/minio/health', async (req, res) => {
     try {
@@ -42,16 +86,16 @@ router.get('/minio/health', async (req, res) => {
             res.status(200).send({
                 status: 'ok',
                 message: 'MinIO connection successful',
-                endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
-                bucket: process.env.S3_BUCKET || 'my-bucket',
+                endpoint: config.S3_ENDPOINT || 'http://localhost:9000',
+                bucket: config.S3_BUCKET || 'my-bucket',
                 timestamp: new Date().toISOString()
             });
         } else {
             res.status(503).send({
                 status: 'error',
                 message: 'MinIO connection failed',
-                endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
-                bucket: process.env.S3_BUCKET || 'my-bucket',
+                endpoint: config.S3_ENDPOINT || 'http://localhost:9000',
+                bucket: config.S3_BUCKET || 'my-bucket',
                 timestamp: new Date().toISOString()
             });
         }
@@ -101,10 +145,10 @@ router.post('/excel/upload-and-process', upload.single('file'), async (req, res)
         console.log(`🔗 Uploading file to MinIO: ${fileName}`);
         console.log(`   Generated key: ${fileKey}`);
         
-        // Subir archivo a MinIO usando el servicio existente
+        // Subir archivo a MinIO precio usando el servicio existente
         const s3 = minioService.s3;
         
-        const bucketName = process.env.S3_BUCKET || 'my-bucket';
+        const bucketName = config.S3_BUCKET || 'my-bucket';
         
         const uploadParams = {
             Bucket: bucketName,
@@ -139,12 +183,13 @@ router.post('/excel/upload-and-process', upload.single('file'), async (req, res)
             }
         };
         
+        const excelInputQueue = `/queue/${config.JMS_QUEUE_EXCEL_INPUT || 'excel-input-queue'}`;
         console.log('📤 Publishing processing message to broker...');
-        console.log('Destination: /queue/excel-input-queue');
+        console.log('Destination:', excelInputQueue);
         console.log('Message Size:', JSON.stringify(processingMessage).length);
         
         if (brokerService.isConnected()) {
-            await brokerService.publish('/queue/excel-input-queue', processingMessage);
+            await brokerService.publish(excelInputQueue, processingMessage);
             console.log('✅ Processing message published successfully');
         } else {
             console.log('⚠️  Broker not connected - processing message not sent');
@@ -261,6 +306,79 @@ router.post('/profiles-therapist/add-therapist', async (req, res) => {
     }
 });
 
+// Endpoint para recibir links de Excel generados desde el parser
+router.post('/excel/generated-link', async (req, res) => {
+    console.log('=== EXCEL GENERATED LINK ENDPOINT CALLED ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Request Body:', JSON.stringify(req.body, null, 2));
+    
+    try {
+        // Validar campos requeridos
+        const requiredFields = ['downloadUrl', 'fileName', 'messageId'];
+        const missingFields = requiredFields.filter(field => !req.body[field]);
+        
+        if (missingFields.length > 0) {
+            console.log('❌ VALIDATION ERROR: Missing required fields:', missingFields);
+            return res.status(400).send({
+                status: 'error',
+                message: 'Missing required fields',
+                missingFields: missingFields,
+                requiredFields: requiredFields
+            });
+        }
+        
+        const { downloadUrl, fileName, messageId, timestamp, source, status } = req.body;
+        
+        console.log('✅ VALIDATION PASSED: All required fields received');
+        console.log('Download URL:', downloadUrl);
+        console.log('File Name:', fileName);
+        console.log('Message ID:', messageId);
+        console.log('Source:', source || 'unknown');
+        console.log('Status:', status || 'unknown');
+        
+        // Crear respuesta de éxito con información del Excel generado
+        const response = {
+            status: 'success',
+            message: 'Excel file generated and link received successfully',
+            generatedExcel: {
+                downloadUrl: downloadUrl,
+                fileName: fileName,
+                messageId: messageId,
+                timestamp: timestamp || new Date().toISOString(),
+                source: source || 'excel-parser',
+                status: status || 'generated',
+                expiresIn: '60 minutes',
+                instructions: {
+                    download: 'Use the downloadUrl to download the generated Excel file',
+                    format: 'The Excel file contains structured patient form data',
+                    note: 'This file was automatically generated from patient form JSON data'
+                }
+            },
+            processingInfo: {
+                originalMessageId: messageId,
+                processingTime: new Date().toISOString(),
+                nextSteps: 'Excel file is ready for download and use'
+            }
+        };
+        
+        console.log('✅ Excel generated link processed successfully');
+        console.log('Response:', JSON.stringify(response, null, 2));
+        
+        res.status(200).send(response);
+        
+    } catch (error) {
+        console.error('❌ FAILED TO PROCESS EXCEL GENERATED LINK:', error.message);
+        console.error('Error Stack:', error.stack);
+        res.status(500).send({
+            status: 'error',
+            message: 'Failed to process Excel generated link',
+            details: error.message
+        });
+    }
+    
+    console.log('=== EXCEL GENERATED LINK ENDPOINT COMPLETED ===');
+});
+
 // Endpoint para obtener presigned URL para subir Excel
 router.post('/excel/presigned-url', async (req, res) => {
     console.log('=== EXCEL PRESIGNED URL ENDPOINT CALLED ===');
@@ -302,7 +420,7 @@ router.post('/excel/presigned-url', async (req, res) => {
                     const processingMessage = {
                         fileKey: fileKey,
                         fileName: fileName,
-                        bucket: process.env.S3_BUCKET || 'my-bucket',
+                        bucket: config.S3_BUCKET || 'my-bucket',
                         fileSize: fileInfo.size,
                         contentType: fileInfo.contentType,
                         timestamp: new Date().toISOString(),
@@ -310,12 +428,13 @@ router.post('/excel/presigned-url', async (req, res) => {
                         metadata: { autoProcessed: true }
                     };
                     
+                    const excelInputQueue = `/queue/${config.JMS_QUEUE_EXCEL_INPUT || 'excel-input-queue'}`;
                     console.log('📤 Publishing automatic processing message to broker...');
-                    console.log('Destination: /queue/excel-input-queue');
+                    console.log('Destination:', excelInputQueue);
                     console.log('Message Size:', JSON.stringify(processingMessage).length);
                     
                     if (brokerService.isConnected()) {
-                        await brokerService.publish('/queue/excel-input-queue', processingMessage);
+                        await brokerService.publish(excelInputQueue, processingMessage);
                         console.log('✅ Automatic processing message published successfully');
                     } else {
                         console.log('⚠️  Broker not connected - automatic processing skipped');
@@ -371,7 +490,7 @@ router.post('/excel/process', async (req, res) => {
     console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
     console.log('Request Body:', JSON.stringify(req.body, null, 2));
     
-    const destination = '/queue/excel-input-queue';
+    const destination = `/queue/${config.JMS_QUEUE_EXCEL_INPUT || 'excel-input-queue'}`;
     
     // Validar campos requeridos
     if (!req.body.fileKey) {
@@ -414,7 +533,7 @@ router.post('/excel/process', async (req, res) => {
         const processingMessage = {
             fileKey: fileKey,
             fileName: fileName || fileInfo.key.split('/').pop(),
-            bucket: process.env.S3_BUCKET || 'my-bucket',
+            bucket: config.S3_BUCKET || 'my-bucket',
             fileSize: fileInfo.size,
             contentType: fileInfo.contentType,
             timestamp: new Date().toISOString(),

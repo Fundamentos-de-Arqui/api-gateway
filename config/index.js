@@ -7,7 +7,7 @@ const environment = process.env.NODE_ENV || 'development';
 const config = {
     NODE_ENV: environment,
 
-    SERVER_PORT: process.env.SERVER_PORT || 3001,
+    SERVER_PORT: process.env.SERVER_PORT || 4000,
 
     USER_SERVICE_URL: process.env.USER_SERVICE_URL || 'http://localhost:4001',
     ORDER_SERVICE_URL: process.env.ORDER_SERVICE_URL || 'http://localhost:4002',
@@ -16,6 +16,20 @@ const config = {
     BROKER_URL: process.env.BROKER_URL || 'ws://localhost:61614/stomp',
     BROKER_USER: process.env.BROKER_USER || 'guest',
     BROKER_PASS: process.env.BROKER_PASS || 'guest',
+    
+    // MinIO/S3 Configuration
+    S3_ENDPOINT: process.env.S3_ENDPOINT || 'http://localhost:9000',
+    S3_ACCESS_KEY: process.env.S3_ACCESS_KEY || 'admin',
+    S3_SECRET_KEY: process.env.S3_SECRET_KEY || 'admin12345',
+    S3_BUCKET: process.env.S3_BUCKET || 'my-bucket',
+    S3_REGION: process.env.S3_REGION || 'us-east-1',
+    S3_FORCE_PATH_STYLE: process.env.S3_FORCE_PATH_STYLE === 'true' || true,
+    
+    // JMS Queue Names
+    JMS_QUEUE_EXCEL_INPUT: process.env.JMS_QUEUE_EXCEL_INPUT || 'excel-input-queue',
+    JMS_QUEUE_PATIENT_DATA: process.env.JMS_QUEUE_PATIENT_DATA || 'patient-data-queue',
+    JMS_QUEUE_PATIENT_FORM: process.env.JMS_QUEUE_PATIENT_FORM || 'excelParser_patientForm',
+    JMS_QUEUE_EXCEL_GENERATED_LINKS: process.env.JMS_QUEUE_EXCEL_GENERATED_LINKS || 'excel-generated-links',
 };
 
 if (environment === 'development' && !process.env.USER_SERVICE_URL) {
