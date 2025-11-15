@@ -583,4 +583,237 @@ router.post('/excel/process', async (req, res) => {
     console.log('=== EXCEL PROCESS ENDPOINT COMPLETED ===');
 });
 
+// GET /profiles/getExcelData?type=DNI&documentNumber=12345678
+router.get('/profiles/getExcelData', async (req, res) => {
+    const { type, documentNumber } = req.query;
+    if (!type || !documentNumber) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Faltan parámetros: type y documentNumber son requeridos.'
+        });
+    }
+
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        // Publica en la cola ActiveMQ
+        brokerService.publish('/queue/profiles_getExcelData', {
+            type,
+            documentNumber,
+            timestamp: new Date().toISOString()
+        });
+
+        // Espera respuesta en la cola excel-generated-links
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 10000; // 10 segundos
+        
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from excel-generated-links due to timeout');
+                }
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta en excel-generated-links.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/excel-generated-links', (msg) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from excel-generated-links after receiving response');
+            }
+            
+            console.log('Received excel link:', JSON.stringify(msg, null, 2));
+            
+            // Devuelve solo el downloadUrl
+            res.status(200).json({
+                downloadUrl: msg.downloadUrl,
+                fileName: msg.fileName,
+                messageId: msg.messageId,
+                timestamp: msg.timestamp,
+                source: msg.source,
+                status: msg.status
+            });
+        });
+    } catch (error) {
+        console.error('Error enviando a la cola:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo enviar a la cola',
+            details: error.message
+        });
+    }
+});
+
+// GET /profiles/getPatientProfiles?status=ACTIVE&page_size=10&page=1 - Obtiene perfiles de pacientes
+router.get('/profiles/getPatientProfiles', async (req, res) => {
+    const { status, page_size, page } = req.query;
+    
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        
+        // Prepara el mensaje con los query params
+        const requestData = {
+            timestamp: new Date().toISOString(),
+            requestId: `req-${Date.now()}`
+        };
+        
+        // Agrega los query params si están presentes
+        if (status) requestData.status = status;
+        if (page_size) requestData.page_size = parseInt(page_size);
+        if (page) requestData.page = parseInt(page);
+        
+        // Publica solicitud en la cola
+        brokerService.publish('/queue/patientRecord_getProfiles', requestData);
+
+        // Espera respuesta en la cola apigateway_patientData
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000; // 15 segundos
+        
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_patientData due to timeout');
+                }
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta de perfiles de pacientes.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_patientData', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_patientData after receiving response');
+            }
+            
+            console.log('Received patient data:', JSON.stringify(data, null, 2));
+            
+            // Devuelve los datos recibidos con el formato PatientsSummaryWrapperDto
+            res.status(200).json({
+                status: 'success',
+                totalResults: data.totalResults,
+                currentPage: data.currentPage,
+                maxPage: data.maxPage,
+                patients: data.patients,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo perfiles de pacientes:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo obtener los perfiles de pacientes',
+            details: error.message
+        });
+    }
+});
+
+// GET /profiles/getFiliationFiles?patientId=1&versionNumber=1&orderBy=DESC
+router.get('/profiles/getFiliationFiles', async (req, res) => {
+    const { patientId, versionNumber, orderBy } = req.query;
+    
+    // Validar parámetros requeridos
+    if (!patientId) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'El parámetro patientId es requerido.'
+        });
+    }
+    
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        
+        // Prepara el mensaje con los parámetros
+        const requestData = {
+            patientId: parseInt(patientId),
+            timestamp: new Date().toISOString(),
+            requestId: `req-filiation-${Date.now()}`
+        };
+        
+        // Agrega parámetros opcionales
+        if (versionNumber) requestData.versionNumber = parseInt(versionNumber);
+        if (orderBy) requestData.orderBy = orderBy;
+        
+        // Publica solicitud en la cola
+        brokerService.publish('/queue/patientRecord_getFilliationFiles', requestData);
+
+        // Espera respuesta en la cola apigateway_filiationFiles
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000; // 15 segundos
+        
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_filiationFiles due to timeout');
+                }
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta de archivos de filiación.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_filiationFiles', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_filiationFiles after receiving response');
+            }
+            
+            console.log('Received filiation data:', JSON.stringify(data, null, 2));
+            
+            // Devuelve los datos recibidos del archivo de filiación
+            res.status(200).json({
+                status: 'success',
+                data: data,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo archivos de filiación:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo obtener los archivos de filiación',
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
