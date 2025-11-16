@@ -4,6 +4,14 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 const environment = process.env.NODE_ENV || 'development';
 
+// Log de variables de entorno cargadas
+console.log('📋 Environment variables loaded:');
+console.log(`   BROKER_URL: ${process.env.BROKER_URL || 'NOT SET (using default: ws://localhost:61614/stomp)'}`);
+console.log(`   BROKER_USER: ${process.env.BROKER_USER || 'NOT SET (using default: guest)'}`);
+console.log(`   BROKER_PASS: ${process.env.BROKER_PASS ? '***' : 'NOT SET (using default: guest)'}`);
+console.log(`   SERVER_PORT: ${process.env.SERVER_PORT || 'NOT SET (using default: 4000)'}`);
+console.log(`   NODE_ENV: ${environment}`);
+
 const config = {
     NODE_ENV: environment,
 

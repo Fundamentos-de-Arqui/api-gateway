@@ -14,6 +14,12 @@ async function connect() {
         return;
     }
 
+    // Log de configuración del broker
+    console.log('🔍 Broker Configuration:');
+    console.log(`   URL: ${config.BROKER_URL}`);
+    console.log(`   User: ${config.BROKER_USER}`);
+    console.log(`   Type: ${config.BROKER_TYPE}`);
+
     stompClient = new Client({
         brokerURL: config.BROKER_URL,
         connectHeaders: {
@@ -32,24 +38,40 @@ async function connect() {
     });
 
     return new Promise((resolve, reject) => {
-        // Timeout de 10 segundos para la conexión
+        // Timeout de 30 segundos para la conexión
         const timeout = setTimeout(() => {
-            console.warn('STOMP: Connection timeout after 10 seconds');
+            console.warn('STOMP: Connection timeout after 30 seconds');
+            console.warn(`STOMP: Failed to connect to ${config.BROKER_URL}`);
+            console.warn('STOMP: Check if the broker is running and accessible');
+            console.warn('STOMP: Verify the port is correct and firewall is not blocking');
             reject(new Error('Broker connection timeout'));
-        }, 10000);
+        }, 30000);
+
+        // Manejo de errores de WebSocket
+        stompClient.onWebSocketError = (event) => {
+            clearTimeout(timeout);
+            console.error('STOMP: WebSocket error occurred');
+            console.error(`STOMP: Failed to connect to ${config.BROKER_URL}`);
+            console.error('STOMP: Error details:', event.message || event);
+            reject(new Error(`WebSocket connection failed: ${event.message || 'Unknown error'}`));
+        };
 
         stompClient.onConnect = (frame) => {
             clearTimeout(timeout);
-            console.log('STOMP: Connected to broker.');
+            console.log('STOMP: Connected to broker successfully');
+            console.log(`STOMP: Connected to ${config.BROKER_URL}`);
             resolve(stompClient);
         };
 
         stompClient.onStompError = (frame) => {
             clearTimeout(timeout);
-            console.error('STOMP: Broker error:', frame);
-            reject(new Error(`STOMP connection failed: ${frame.headers.message}`));
+            console.error('STOMP: STOMP protocol error');
+            console.error('STOMP: Error frame:', frame);
+            console.error(`STOMP: Failed to connect to ${config.BROKER_URL}`);
+            reject(new Error(`STOMP connection failed: ${frame.headers?.message || 'Unknown STOMP error'}`));
         };
 
+        console.log(`STOMP: Attempting to connect to ${config.BROKER_URL}...`);
         stompClient.activate();
     });
 }

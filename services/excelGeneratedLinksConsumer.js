@@ -23,6 +23,9 @@ class ExcelGeneratedLinksConsumer {
             return;
         }
 
+        console.log('ExcelGeneratedLinksConsumer: Connecting to broker...');
+        console.log(`ExcelGeneratedLinksConsumer: URL: ${config.BROKER_URL}`);
+        
         stompClient = new Client({
             brokerURL: config.BROKER_URL,
             connectHeaders: {
@@ -36,9 +39,10 @@ class ExcelGeneratedLinksConsumer {
 
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
-                console.warn('ExcelGeneratedLinksConsumer: Connection timeout after 10 seconds');
+                console.warn('ExcelGeneratedLinksConsumer: Connection timeout after 30 seconds');
+                console.warn(`ExcelGeneratedLinksConsumer: Failed to connect to ${config.BROKER_URL}`);
                 reject(new Error('Broker connection timeout'));
-            }, 10000);
+            }, 30000);
 
             stompClient.onConnect = (frame) => {
                 clearTimeout(timeout);
@@ -50,10 +54,17 @@ class ExcelGeneratedLinksConsumer {
                 resolve(stompClient);
             };
 
+            stompClient.onWebSocketError = (event) => {
+                clearTimeout(timeout);
+                console.error('ExcelGeneratedLinksConsumer: WebSocket error:', event);
+                console.error(`ExcelGeneratedLinksConsumer: Failed to connect to ${config.BROKER_URL}`);
+                reject(new Error(`WebSocket connection failed: ${event.message || 'Unknown error'}`));
+            };
+
             stompClient.onStompError = (frame) => {
                 clearTimeout(timeout);
-                console.error('ExcelGeneratedLinksConsumer: Broker error:', frame);
-                reject(new Error(`STOMP connection failed: ${frame.headers.message}`));
+                console.error('ExcelGeneratedLinksConsumer: STOMP protocol error:', frame);
+                reject(new Error(`STOMP connection failed: ${frame.headers?.message || 'Unknown STOMP error'}`));
             };
 
             stompClient.activate();
