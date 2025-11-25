@@ -919,15 +919,16 @@ router.patch('/assessments/:id/status', async (req, res) => {
             assessmentId: parseInt(id),
             status: status,
             timestamp: new Date().toISOString(),
-            requestId: `req-update-assessment-${Date.now()}`
+            requestId: `req-update-${Date.now()}`
         };
 
+        // Publicar a la cola del servicio
         brokerService.publish(
             '/queue/scheduling_updateAssessmentStatus',
             requestData
         );
 
-        // ---- Waiting for the service response ----
+        // ───────────────── WAIT FOR RESPONSE ─────────────────
         let responded = false;
         let subscription = null;
         const timeoutMs = 15000;
@@ -936,10 +937,9 @@ router.patch('/assessments/:id/status', async (req, res) => {
             if (!responded) {
                 responded = true;
                 if (subscription) subscription.unsubscribe();
-
                 return res.status(504).json({
                     status: 'error',
-                    message: 'Timeout waiting for response from assessment service.'
+                    message: 'Timeout waiting for status update response.'
                 });
             }
         }, timeoutMs);
@@ -953,9 +953,7 @@ router.patch('/assessments/:id/status', async (req, res) => {
 
                 if (subscription) subscription.unsubscribe();
 
-                console.log("Received assessment update:", JSON.stringify(data, null, 2));
-
-                res.status(200).json({
+                return res.status(200).json({
                     status: 'success',
                     data: data,
                     timestamp: new Date().toISOString()
@@ -973,6 +971,62 @@ router.patch('/assessments/:id/status', async (req, res) => {
     }
 });
 
+// /api/assessments
+router.get('/assessments', async (req, res) => {
+    const { patientId, therapistId, status, scheduledAt } = req.query;
+    const page = parseInt(req.query.page || 0);
+    const size = parseInt(req.query.size || 10);
+
+    if (isNaN(page) || isNaN(size)) {
+        return res.status(400).json({ status: 'error', message: 'page and size are required and must be numbers' });
+    }
+
+    try {
+        if (!brokerService.isConnected()) await brokerService.connect();
+
+        const requestData = {
+            patientId: patientId ? parseInt(patientId) : null,
+            therapistId: therapistId ? parseInt(therapistId) : null,
+            status: status || null,
+            scheduledAt: scheduledAt || null,
+            page,
+            size,
+            requestId: `req-getAssessments-${Date.now()}`,
+            timestamp: new Date().toISOString()
+        };
+
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({ status: 'error', message: 'Timeout waiting for response from assessment service.' });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_assessmentsResponse', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            if (subscription) subscription.unsubscribe();
+
+            res.status(200).json({
+                status: 'success',
+                data,
+                timestamp: new Date().toISOString()
+            });
+        });
+
+        brokerService.publish('/queue/scheduling_getAssessments', requestData);
+
+    } catch (error) {
+        console.error('Error getting assessments:', error);
+        res.status(500).json({ status: 'error', message: 'Could not get assessments', details: error.message });
+    }
+});
 
 
 module.exports = router;
