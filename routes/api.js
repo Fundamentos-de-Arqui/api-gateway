@@ -1027,6 +1027,70 @@ router.get('/assessments', async (req, res) => {
         res.status(500).json({ status: 'error', message: 'Could not get assessments', details: error.message });
     }
 });
+// /api/therapy-plans
+router.post('/therapy-plans', async (req, res) => {
+    const {
+        assessmentId,
+        description,
+        goals,
+        assignedTherapistId,
+        legalResponsibleId,
+        schedule
+    } = req.body;
+
+    if (!assessmentId || !description || !goals || !assignedTherapistId || !legalResponsibleId) {
+        return res.status(400).json({ status: 'error', message: 'Missing required fields' });
+    }
+
+    try {
+        if (!brokerService.isConnected()) await brokerService.connect();
+
+        const requestData = {
+            assessmentId,
+            description,
+            goals,
+            assignedTherapistId,
+            legalResponsibleId,
+            schedule: schedule || [],
+            requestId: `req-createTherapyPlan-${Date.now()}`,
+            timestamp: new Date().toISOString()
+        };
+
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout waiting for response from therapy plan service.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_therapyPlanCreated', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            if (subscription) subscription.unsubscribe();
+
+            res.status(201).json({
+                status: 'success',
+                data,
+                timestamp: new Date().toISOString()
+            });
+        });
+
+        brokerService.publish('/queue/scheduling_createTherapyPlan', requestData);
+
+    } catch (error) {
+        console.error('Error creating therapy plan:', error);
+        res.status(500).json({ status: 'error', message: 'Could not create therapy plan', details: error.message });
+    }
+});
 
 
 module.exports = router;
