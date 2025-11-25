@@ -816,4 +816,87 @@ router.get('/profiles/getFiliationFiles', async (req, res) => {
     }
 });
 
+// POST /assessments
+router.post('/assessments', async (req, res) => {
+    const { patientId, therapistId, scheduledTo } = req.body;
+
+    // Basic validation
+    if (!patientId || !therapistId || !scheduledTo) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'The parameters patientId, therapistId, and scheduledTo are required.'
+        });
+    }
+
+    try {
+        // Ensure connection to the broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+
+        // Build the payload for the service
+        const requestData = {
+            patientId: parseInt(patientId),
+            therapistId: parseInt(therapistId),
+            scheduledTo: scheduledTo,
+            timestamp: new Date().toISOString(),
+            requestId: `req-reassessment-${Date.now()}`
+        };
+
+        // Publish the request to the service
+        brokerService.publish(
+            '/queue/scheduling_createReassessmentSession',
+            requestData
+        );
+
+        // --------------- Wait for response on the queue ---------------
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout waiting for response from the session service.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe(
+            '/queue/apigateway_reassessmentSessionCreated',
+            (data) => {
+                if (responded) return;
+                responded = true;
+                clearTimeout(timeout);
+
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed after receiving reassessment response');
+                }
+
+                console.log('Received reassessment session:', JSON.stringify(data, null, 2));
+
+                // Response to the final client
+                res.status(200).json({
+                    status: 'success',
+                    data: data,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        );
+
+    } catch (error) {
+        console.error('Error creating assessment session:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Could not create assessment session',
+            details: error.message
+        });
+    }
+});
+
+
 module.exports = router;
