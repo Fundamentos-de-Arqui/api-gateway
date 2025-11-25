@@ -898,5 +898,81 @@ router.post('/assessments', async (req, res) => {
     }
 });
 
+// PATCH /assessments/:id/status
+router.patch('/assessments/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!id || !status) {
+        return res.status(400).json({
+            status: 'error',
+            message: 'Both id and status are required.'
+        });
+    }
+
+    try {
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+
+        const requestData = {
+            assessmentId: parseInt(id),
+            status: status,
+            timestamp: new Date().toISOString(),
+            requestId: `req-update-assessment-${Date.now()}`
+        };
+
+        brokerService.publish(
+            '/queue/scheduling_updateAssessmentStatus',
+            requestData
+        );
+
+        // ---- Waiting for the service response ----
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout waiting for response from assessment service.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe(
+            '/queue/apigateway_assessmentStatusUpdated',
+            (data) => {
+                if (responded) return;
+                responded = true;
+                clearTimeout(timeout);
+
+                if (subscription) subscription.unsubscribe();
+
+                console.log("Received assessment update:", JSON.stringify(data, null, 2));
+
+                res.status(200).json({
+                    status: 'success',
+                    data: data,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        );
+
+    } catch (error) {
+        console.error("Error updating assessment:", error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Could not update assessment status',
+            details: error.message
+        });
+    }
+});
+
+
 
 module.exports = router;
