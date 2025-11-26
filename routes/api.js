@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const brokerService = require('../services/broker');
 const minioService = require('../services/minioService');
 const ExcelGeneratedLinksConsumer = require('../services/excelGeneratedLinksConsumer');
@@ -1148,5 +1149,26 @@ router.get('/therapy-plans', async (req, res) => {
     }
 });
 
+// 
+router.get("/holidays/:year", async (req, res) => {
+  const { year} = req.params;
+
+  try {
+    const externalUrl = `https://date.nager.at/api/v3/publicholidays/${year}/PE`;
+
+    const { data } = await axios.get(externalUrl);
+
+    const mapped = data.map(h => ({
+      date: h.date,
+      name: h.localName
+    }));
+
+    return res.json(mapped);
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error retrieving holidays" });
+  }
+});
 
 module.exports = router;
