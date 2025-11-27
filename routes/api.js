@@ -1171,4 +1171,93 @@ router.get("/holidays/:year", async (req, res) => {
   }
 });
 
+
+//GET /clinical-folders/medicalrecords
+/**
+ * patient id no puede ser nulo
+ * 
+ * 3 respuestas:
+ * 
+ * 1. si version number y orderBy es nulo: Devuelve la lista de forma ascendente teniendo como parametros page y size
+ * 2. si solo order by es nulo: Devuelve el registro con el version number correspondiente
+ * 3. si version number es nulo: Devuelve la lista de la forma designada por el "orderBy" teniendo como parametros page y size 
+ */
+router.get('/clinical-folders/medical-records/', async (req, res) => {
+    const { patientId, versionNumber, orderBy, page, size } = req.body;
+
+    try {
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+
+        // Construccion del mensaje a mandar
+        const request = {
+            patientId: parseInt(patientId),
+            versionNumber: versionNumber ? parseInt(versionNumber) : null,
+            orderBy: orderBy ?? null,
+            page: page ? parseInt(page) : null,
+            size: size ? parseInt(size) : null
+        };
+
+        console.log("Sending request:", request);
+
+        // Enviar a la cola de entrada
+        brokerService.publish('/queue/apigateway_getMedicalRecord', request);
+
+        // Esperar respuesta
+        let responded = false;
+        let subscription = null;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({ 
+                    status: 'error',
+                    message: 'Timeout esperando respuesta del microservicio Medical History' 
+                });
+            }
+        }, 15000);
+
+        subscription = brokerService.subscribe('/queue/medicalRecord_responseToGateway', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+
+            if (subscription) subscription.unsubscribe();
+
+            console.log("Received medical record data:", data);
+
+            // Si el backend devolvió una página
+            if (data.totalElements !== undefined) {
+                return res.status(200).json({
+                    status: "success",
+                    mode: "paged",
+                    totalElements: data.totalElements,
+                    totalPages: data.totalPages,
+                    page: data.page,
+                    size: data.size,
+                    records: data.records
+                });
+            }
+
+            // Si devolvió un solo record
+            return res.status(200).json({
+                status: "success",
+                mode: "single",
+                record: data
+            });
+        });
+
+    } catch (error) {
+        console.error("Error obteniendo historial médico:", error);
+        res.status(500).json({
+            status: "error",
+            message: "No se pudo obtener el historial médico",
+            details: error.message
+        });
+    }
+});
+
+
 module.exports = router;
