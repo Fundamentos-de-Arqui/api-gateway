@@ -954,6 +954,138 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// GET /profiles/therapists - Obtiene lista de terapeutas
+router.get('/profiles/therapists', async (req, res) => {
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        
+        // Envía solicitud a la cola
+        const requestData = {
+            timestamp: new Date().toISOString(),
+            requestId: `therapists-${Date.now()}`
+        };
+        
+        brokerService.publish('/queue/profiles_therapistProfiles', requestData);
+
+        // Espera respuesta en la cola apigateway_therapistProfiles
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000; // 15 segundos
+        
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_therapistProfiles due to timeout');
+                }
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta de perfiles de terapeutas.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_therapistProfiles', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_therapistProfiles after receiving response');
+            }
+            
+            console.log('Received therapist profiles:', JSON.stringify(data, null, 2));
+            
+            // Devuelve el array de terapeutas
+            res.status(200).json({
+                status: 'success',
+                therapists: data,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo perfiles de terapeutas:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo obtener los perfiles de terapeutas',
+            details: error.message
+        });
+    }
+});
+
+// GET /profiles/legal-responsible - Obtiene lista de representantes legales
+router.get('/profiles/legal-responsible', async (req, res) => {
+    try {
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+        
+        // Envía solicitud a la cola
+        const requestData = {
+            timestamp: new Date().toISOString(),
+            requestId: `legal-responsible-${Date.now()}`
+        };
+        
+        brokerService.publish('/queue/profiles_legal-responsibleProfiles', requestData);
+
+        // Espera respuesta en la cola apigateway_legal-responsibleProfiles
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000; // 15 segundos
+        
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_legal-responsibleProfiles due to timeout');
+                }
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta de representantes legales.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_legal-responsibleProfiles', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_legal-responsibleProfiles after receiving response');
+            }
+            
+            console.log('Received legal responsible profiles:', JSON.stringify(data, null, 2));
+            
+            // Devuelve el array de representantes legales
+            res.status(200).json({
+                status: 'success',
+                legalResponsible: data,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error obteniendo representantes legales:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo obtener los representantes legales',
+            details: error.message
+        });
+    }
+});
+
 // POST /assessments
 router.post('/assessments', async (req, res) => {
     const { patientId, therapistId, scheduledTo } = req.body;
@@ -1325,7 +1457,7 @@ router.get('/sessions', async (req, res) => {
             }
         }, timeoutMs);
 
-        subscription = brokerService.subscribe('/queue/profile_getSessions', (data) => {
+        subscription = brokerService.subscribe('/queue/apigateway_getSessions', (data) => {
             if (responded) return;
             responded = true;
 
