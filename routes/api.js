@@ -1457,7 +1457,7 @@ router.get('/sessions', async (req, res) => {
             }
         }, timeoutMs);
 
-        subscription = brokerService.subscribe('/queue/profile_getSessions', (data) => {
+        subscription = brokerService.subscribe('/queue/apigateway_getSessions', (data) => {
             if (responded) return;
             responded = true;
 
