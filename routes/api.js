@@ -1149,6 +1149,71 @@ router.get('/therapy-plans', async (req, res) => {
     }
 });
 
+//api/sessions
+router.get('/sessions', async (req, res) => {
+    const { therapistId, patientId, responsibleLegalId, status } = req.query;
+    const page = parseInt(req.query.page || 0);
+    const size = parseInt(req.query.size || 10);
+
+    if (isNaN(page) || isNaN(size)) {
+        return res.status(400).json({ status: 'error', message: 'page and size must be numbers' });
+    }
+
+    try {
+        if (!brokerService.isConnected()) await brokerService.connect();
+
+        const requestData = {
+            therapistId: therapistId ? parseInt(therapistId) : null,
+            patientId: patientId ? parseInt(patientId) : null,
+            responsibleLegalId: responsibleLegalId ? parseInt(responsibleLegalId) : null,
+            status: status || null,
+            page,
+            size,
+            requestId: `req-getSessions-${Date.now()}`,
+            timestamp: new Date().toISOString()
+        };
+
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout waiting for response from session service.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/profile_getSessions', (data) => {
+            if (responded) return;
+            responded = true;
+
+            clearTimeout(timeout);
+            if (subscription) subscription.unsubscribe();
+
+            res.status(200).json({
+                status: 'success',
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        });
+
+        brokerService.publish('/queue/scheduling_getSessions', requestData);
+
+    } catch (error) {
+        console.error('Error getting sessions:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Could not get sessions',
+            details: error.message
+        });
+    }
+});
+
 // 
 router.get("/holidays/:year", async (req, res) => {
   const { year} = req.params;
