@@ -1351,6 +1351,66 @@ router.get('/sessions', async (req, res) => {
     }
 });
 
+// api/sessions
+router.patch('/sessions/status', async (req, res) => {
+    const { id, status } = req.body;
+
+    if (!id || !status) {
+        return res.status(400).json({ status: 'error', message: 'id and status are required' });
+    }
+
+    try {
+        if (!brokerService.isConnected()) await brokerService.connect();
+
+        const requestData = {
+            id: parseInt(id),
+            status,
+            requestId: `req-updateSessionStatus-${Date.now()}`,
+            timestamp: new Date().toISOString()
+        };
+
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout waiting for response from session service.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/session_statusUpdated', (data) => {
+            if (responded) return;
+            responded = true;
+
+            clearTimeout(timeout);
+            if (subscription) subscription.unsubscribe();
+
+            res.status(200).json({
+                status: 'success',
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        });
+
+        // Publicar en la cola del servicio que actualiza el status
+        brokerService.publish('/queue/session_updateStatus', requestData);
+
+    } catch (error) {
+        console.error('Error updating session status:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Could not update session status',
+            details: error.message
+        });
+    }
+});
+
 // 
 router.get("/holidays/:year", async (req, res) => {
   const { year} = req.params;
