@@ -817,6 +817,143 @@ router.get('/profiles/getFiliationFiles', async (req, res) => {
     }
 });
 
+// POST /register - Registra usuarios (pacientes, terapeutas, representantes legales)
+router.post('/register', async (req, res) => {
+    try {
+        // Validar que se reciban datos
+        if (!req.body || typeof req.body !== 'object') {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Se requieren datos en el body de la petición.'
+            });
+        }
+
+        // Validar campos básicos requeridos
+        const { password, identityDocumentNumber, documentType } = req.body;
+        if (!password || !identityDocumentNumber || !documentType) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Los campos password, identityDocumentNumber y documentType son requeridos.'
+            });
+        }
+
+        // Asegura conexión al broker
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+
+        // Envía todos los datos recibidos a la cola profiles_register
+        const registrationData = {
+            ...req.body,
+            timestamp: new Date().toISOString(),
+            requestId: `reg-${Date.now()}`
+        };
+
+        brokerService.publish('/queue/profiles_register', registrationData);
+
+        // Espera respuesta en la cola iam_register
+        let responded = false;
+        let subscription = null;
+        const timeoutMs = 15000; // 15 segundos
+        
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) {
+                    subscription.unsubscribe();
+                    console.log('STOMP: Unsubscribed from apigateway_register due to timeout');
+                }
+                return res.status(504).json({
+                    status: 'error',
+                    message: 'Timeout esperando respuesta del registro de usuario.'
+                });
+            }
+        }, timeoutMs);
+
+        subscription = brokerService.subscribe('/queue/apigateway_register', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+            
+            // Desuscribirse inmediatamente después de recibir la respuesta
+            if (subscription) {
+                subscription.unsubscribe();
+                console.log('STOMP: Unsubscribed from apigateway_register after receiving response');
+            }
+            
+            console.log('Received registration response:', JSON.stringify(data, null, 2));
+            
+            // Devuelve la respuesta del registro
+            res.status(201).json({
+                status: 'success',
+                userId: data.userId,
+                accountType: data.accountType,
+                email: data.email,
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error en el registro de usuario:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'No se pudo procesar el registro de usuario',
+            details: error.message
+        });
+    }
+});
+
+// POST /login - Redirige al servicio IAM para autenticación
+router.post('/login', async (req, res) => {
+    try {
+        const { identityDocumentNumber, password } = req.body;
+
+        // Validar campos requeridos
+        if (!identityDocumentNumber || !password) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Los campos identityDocumentNumber y password son requeridos.'
+            });
+        }
+
+        // Preparar datos para el servicio IAM
+        const loginData = {
+            identityDocumentNumber,
+            password
+        };
+
+        // Realizar petición al servicio IAM
+        const iamResponse = await axios.post(
+            'http://172.193.242.89:8080/IAM-1.0-SNAPSHOT/api/auth/login',
+            loginData,
+            {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000 // 10 segundos timeout
+            }
+        );
+
+        // Devolver la respuesta del servicio IAM
+        res.status(iamResponse.status).json(iamResponse.data);
+
+    } catch (error) {
+        console.error('Error en login:', error);
+
+        // Si es un error de respuesta del servicio IAM
+        if (error.response) {
+            return res.status(error.response.status).json(error.response.data);
+        }
+
+        // Error de conexión u otro
+        res.status(500).json({
+            status: 'error',
+            message: 'Error al conectar con el servicio de autenticación',
+            details: error.message
+        });
+    }
+});
+
 // POST /assessments
 router.post('/assessments', async (req, res) => {
     const { patientId, therapistId, scheduledTo } = req.body;
@@ -1235,5 +1372,94 @@ router.get("/holidays/:year", async (req, res) => {
     return res.status(500).json({ message: "Error retrieving holidays" });
   }
 });
+
+
+//GET /clinical-folders/medicalrecords
+/**
+ * patient id no puede ser nulo
+ * 
+ * 3 respuestas:
+ * 
+ * 1. si version number y orderBy es nulo: Devuelve la lista de forma ascendente teniendo como parametros page y size
+ * 2. si solo order by es nulo: Devuelve el registro con el version number correspondiente
+ * 3. si version number es nulo: Devuelve la lista de la forma designada por el "orderBy" teniendo como parametros page y size 
+ */
+router.get('/clinical-folders/medical-records/', async (req, res) => {
+    const { patientId, versionNumber, orderBy, page, size } = req.body;
+
+    try {
+        if (!brokerService.isConnected()) {
+            await brokerService.connect();
+        }
+
+        // Construccion del mensaje a mandar
+        const request = {
+            patientId: parseInt(patientId),
+            versionNumber: versionNumber ? parseInt(versionNumber) : null,
+            orderBy: orderBy ?? null,
+            page: page ? parseInt(page) : null,
+            size: size ? parseInt(size) : null
+        };
+
+        console.log("Sending request:", request);
+
+        // Enviar a la cola de entrada
+        brokerService.publish('/queue/apigateway_getMedicalRecord', request);
+
+        // Esperar respuesta
+        let responded = false;
+        let subscription = null;
+
+        const timeout = setTimeout(() => {
+            if (!responded) {
+                responded = true;
+                if (subscription) subscription.unsubscribe();
+                return res.status(504).json({ 
+                    status: 'error',
+                    message: 'Timeout esperando respuesta del microservicio Medical History' 
+                });
+            }
+        }, 15000);
+
+        subscription = brokerService.subscribe('/queue/medicalRecord_responseToGateway', (data) => {
+            if (responded) return;
+            responded = true;
+            clearTimeout(timeout);
+
+            if (subscription) subscription.unsubscribe();
+
+            console.log("Received medical record data:", data);
+
+            // Si el backend devolvió una página
+            if (data.totalElements !== undefined) {
+                return res.status(200).json({
+                    status: "success",
+                    mode: "paged",
+                    totalElements: data.totalElements,
+                    totalPages: data.totalPages,
+                    page: data.page,
+                    size: data.size,
+                    records: data.records
+                });
+            }
+
+            // Si devolvió un solo record
+            return res.status(200).json({
+                status: "success",
+                mode: "single",
+                record: data
+            });
+        });
+
+    } catch (error) {
+        console.error("Error obteniendo historial médico:", error);
+        res.status(500).json({
+            status: "error",
+            message: "No se pudo obtener el historial médico",
+            details: error.message
+        });
+    }
+});
+
 
 module.exports = router;
