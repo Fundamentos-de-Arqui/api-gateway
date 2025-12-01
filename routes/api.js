@@ -1576,15 +1576,22 @@ router.get("/holidays/:year", async (req, res) => {
  * 2. si solo order by es nulo: Devuelve el registro con el version number correspondiente
  * 3. si version number es nulo: Devuelve la lista de la forma designada por el "orderBy" teniendo como parametros page y size 
  */
-router.get('/clinical-folders/medical-records/', async (req, res) => {
-    const { patientId, versionNumber, orderBy, page, size } = req.body;
+router.get('/clinical-folders/medical-records', async (req, res) => {
+    const { patientId, versionNumber, orderBy, page, size } = req.query;
 
     try {
+        if (!patientId) {
+            return res.status(400).json({
+                status: "error",
+                message: "El parámetro 'patientId' es obligatorio"
+            });
+        }
+
         if (!brokerService.isConnected()) {
             await brokerService.connect();
         }
 
-        // Construccion del mensaje a mandar
+        // Construcción del mensaje para el broker
         const request = {
             patientId: parseInt(patientId),
             versionNumber: versionNumber ? parseInt(versionNumber) : null,
@@ -1595,34 +1602,33 @@ router.get('/clinical-folders/medical-records/', async (req, res) => {
 
         console.log("Sending request:", request);
 
-        // Enviar a la cola de entrada
+        // Enviar el mensaje al microservicio vía cola
         brokerService.publish('/queue/apigateway_getMedicalRecord', request);
 
-        // Esperar respuesta
         let responded = false;
         let subscription = null;
 
+        // Timeout de espera
         const timeout = setTimeout(() => {
             if (!responded) {
                 responded = true;
                 if (subscription) subscription.unsubscribe();
-                return res.status(504).json({ 
+                return res.status(504).json({
                     status: 'error',
-                    message: 'Timeout esperando respuesta del microservicio Medical History' 
+                    message: 'Timeout esperando respuesta del microservicio Medical History'
                 });
             }
         }, 15000);
 
+        // Subscribirse a la cola de respuesta
         subscription = brokerService.subscribe('/queue/medicalRecord_responseToGateway', (data) => {
             if (responded) return;
             responded = true;
             clearTimeout(timeout);
-
             if (subscription) subscription.unsubscribe();
 
             console.log("Received medical record data:", data);
 
-            // Si el backend devolvió una página
             if (data.totalElements !== undefined) {
                 return res.status(200).json({
                     status: "success",
@@ -1635,7 +1641,6 @@ router.get('/clinical-folders/medical-records/', async (req, res) => {
                 });
             }
 
-            // Si devolvió un solo record
             return res.status(200).json({
                 status: "success",
                 mode: "single",
