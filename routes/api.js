@@ -1420,7 +1420,7 @@ router.get('/therapy-plans', async (req, res) => {
 
 //api/sessions
 router.get('/sessions', async (req, res) => {
-    const { therapistId, patientId, responsibleLegalId, status } = req.query;
+    const { therapistId, patientId, legalResponsibleId, status } = req.query;
     const page = parseInt(req.query.page || 0);
     const size = parseInt(req.query.size || 10);
 
@@ -1434,7 +1434,7 @@ router.get('/sessions', async (req, res) => {
         const requestData = {
             therapistId: therapistId ? parseInt(therapistId) : null,
             patientId: patientId ? parseInt(patientId) : null,
-            responsibleLegalId: responsibleLegalId ? parseInt(responsibleLegalId) : null,
+            legalResponsibleId: legalResponsibleId ? parseInt(legalResponsibleId) : null,
             status: status || null,
             page,
             size,
